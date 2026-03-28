@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    ports:
+      - '5432:5432'
+    environment:
+      POSTGRES_USER: beastops
+      POSTGRES_PASSWORD: beastops
+      POSTGRES_DB: beastops
+    volumes:
+      - beastops_pgdata:/var/lib/postgresql/data
+
+volumes:
+  beastops_pgdata:

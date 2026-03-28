@@ -1,0 +1,260 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum WorkspaceRole {
+  ADMIN
+  CREATOR
+  EDITOR
+  VIEWER
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum SystemAccountType {
+  NONE
+  SUPERUSER
+  BACKUP_SUPERUSER
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  imageUrl  String?
+  /// Immutable elevated accounts; cannot be deleted, deactivated, or edited via API.
+  systemAccount SystemAccountType @default(NONE)
+  /// When false, user cannot authenticate (system accounts are always treated as active).
+  isActive      Boolean           @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships    WorkspaceMember[]
+  oauthAccounts  OAuthAccount[]
+  tasksAssigned  Task[]            @relation("TaskAssignee")
+  comments       Comment[]
+  auditEvents    AuditEvent[]
+}
+
+model Workspace {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members         WorkspaceMember[]
+  pipelineStages  PipelineStage[]
+  videoProjects   VideoProject[]
+  ideas           Idea[]
+  tasks           Task[]
+  comments        Comment[]
+  auditEvents     AuditEvent[]
+  channels        Channel[]
+  youtubeVideos   Video[]
+}
+
+model WorkspaceMember {
+  id          String        @id @default(cuid())
+  workspaceId String
+  userId      String
+  role        WorkspaceRole @default(VIEWER)
+  createdAt   DateTime      @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+}
+
+model PipelineStage {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  sortOrder   Int
+  createdAt   DateTime @default(now())
+
+  workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  videoProjects VideoProject[]
+
+  @@index([workspaceId, sortOrder])
+}
+
+model Idea {
+  id                  String   @id @default(cuid())
+  workspaceId         String
+  title               String
+  hooks               String?
+  thumbnailConcepts   String?
+  tags                String[] @default([])
+  expectedPerformance String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  workspace    Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  videoProject VideoProject?
+}
+
+model VideoProject {
+  id          String   @id @default(cuid())
+  workspaceId String
+  stageId     String
+  title       String
+  ideaId      String?  @unique
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  stage     PipelineStage @relation(fields: [stageId], references: [id], onDelete: Restrict)
+  idea      Idea?         @relation(fields: [ideaId], references: [id])
+  tasks     Task[]
+  comments  Comment[]
+  audits    AuditEvent[]
+
+  @@index([workspaceId, stageId])
+}
+
+model Task {
+  id             String       @id @default(cuid())
+  workspaceId    String
+  videoProjectId String?
+  assigneeId     String?
+  title          String
+  dueDate        DateTime?
+  status         TaskStatus   @default(TODO)
+  priority       TaskPriority @default(MEDIUM)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  workspace    Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  videoProject VideoProject? @relation(fields: [videoProjectId], references: [id], onDelete: Cascade)
+  assignee     User?         @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  comments     Comment[]
+
+  @@index([workspaceId])
+  @@index([videoProjectId])
+}
+
+model Comment {
+  id             String   @id @default(cuid())
+  workspaceId    String
+  videoProjectId String?
+  taskId         String?
+  authorId       String
+  body           String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  workspace    Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  videoProject VideoProject? @relation(fields: [videoProjectId], references: [id], onDelete: Cascade)
+  task         Task?         @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  author       User          @relation(fields: [authorId], references: [id])
+
+  @@index([workspaceId])
+}
+
+model AuditEvent {
+  id             String   @id @default(cuid())
+  workspaceId    String
+  videoProjectId String?
+  actorId        String?
+  action         String
+  payload        Json?
+  createdAt      DateTime @default(now())
+
+  workspace    Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  videoProject VideoProject? @relation(fields: [videoProjectId], references: [id], onDelete: Cascade)
+  actor        User?         @relation(fields: [actorId], references: [id])
+
+  @@index([workspaceId, createdAt])
+}
+
+model OAuthAccount {
+  id                    String    @id @default(cuid())
+  userId                String
+  provider              String
+  providerAccountId     String
+  refreshTokenEncrypted String?
+  accessTokenEncrypted  String?
+  expiresAt             DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Channel {
+  id               String   @id @default(cuid())
+  workspaceId      String
+  youtubeChannelId String   @unique
+  title            String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  videos    Video[]
+
+  @@index([workspaceId])
+}
+
+model Video {
+  id             String    @id @default(cuid())
+  workspaceId    String
+  channelId      String
+  youtubeVideoId String
+  title          String?
+  publishedAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  workspace Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  channel   Channel            @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  metricsTs MetricTimeseries[]
+  snapshot  MetricSnapshot?
+
+  @@unique([workspaceId, youtubeVideoId])
+  @@index([workspaceId, youtubeVideoId])
+}
+
+model MetricTimeseries {
+  id           String   @id @default(cuid())
+  videoId      String
+  date         DateTime @db.Date
+  views        Int      @default(0)
+  impressions  Int?
+  ctr          Float?
+  watchTimeSec Int?
+
+  video Video @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@unique([videoId, date])
+  @@index([videoId, date])
+}
+
+model MetricSnapshot {
+  id           String   @id @default(cuid())
+  videoId      String   @unique
+  views        Int      @default(0)
+  impressions  Int?
+  ctr          Float?
+  watchTimeSec Int?
+  updatedAt    DateTime @updatedAt
+
+  video Video @relation(fields: [videoId], references: [id], onDelete: Cascade)
+}

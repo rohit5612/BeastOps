@@ -1,0 +1,32 @@
+{
+  "name": "api",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "dev": "node src/server.js",
+    "start": "node src/server.js",
+    "db:generate": "prisma generate",
+    "db:migrate": "node scripts/prisma-with-env.mjs migrate dev",
+    "db:push": "node scripts/prisma-with-env.mjs db push",
+    "db:studio": "node scripts/prisma-with-env.mjs studio",
+    "db:deploy": "node scripts/prisma-with-env.mjs migrate deploy",
+    "test:api": "node scripts/verify-api.mjs",
+    "postinstall": "prisma generate"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-promise-router": "^4.1.1",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "morgan": "^1.10.0"
+  },
+  "devDependencies": {
+    "prisma": "^6.19.0"
+  }
+}
