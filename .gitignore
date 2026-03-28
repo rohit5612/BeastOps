@@ -40,3 +40,4 @@ Thumbs.db
 # Cursor local state
 .cursor/
 
+.env.example
