@@ -18,6 +18,11 @@ export function loadConfig() {
 
   const JWT_SECRET = trimEnvValue(process.env.JWT_SECRET) || 'dev-secret-change-me';
   const JWT_EXPIRES_IN = trimEnvValue(process.env.JWT_EXPIRES_IN) || '7d';
+  const TOKEN_ENCRYPTION_KEY = trimEnvValue(process.env.TOKEN_ENCRYPTION_KEY);
+
+  const GOOGLE_CLIENT_ID = trimEnvValue(process.env.GOOGLE_CLIENT_ID);
+  const GOOGLE_CLIENT_SECRET = trimEnvValue(process.env.GOOGLE_CLIENT_SECRET);
+  const GOOGLE_REDIRECT_URI = trimEnvValue(process.env.GOOGLE_REDIRECT_URI);
 
   const FRONTEND_URL =
     trimEnvValue(process.env.FRONTEND_URL) || CORS_ORIGIN;
@@ -58,6 +63,12 @@ export function loadConfig() {
     auth: {
       jwtSecret: JWT_SECRET,
       jwtExpiresIn: JWT_EXPIRES_IN,
+      tokenEncryptionKey: TOKEN_ENCRYPTION_KEY,
+    },
+    oauth: {
+      googleClientId: GOOGLE_CLIENT_ID,
+      googleClientSecret: GOOGLE_CLIENT_SECRET,
+      googleRedirectUri: GOOGLE_REDIRECT_URI,
     },
     frontend: {
       url: FRONTEND_URL,

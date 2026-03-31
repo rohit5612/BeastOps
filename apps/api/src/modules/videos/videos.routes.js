@@ -1,7 +1,12 @@
 import expressPromiseRouter from 'express-promise-router';
 import { requireAuthMiddleware } from '../../auth/session.js';
 import { requireWorkspaceMember } from '../../auth/middlewares/workspaceScope.js';
-import { getVideos, patchVideoStage, postVideo } from './videos.controller.js';
+import {
+  getVideoAudit,
+  getVideos,
+  patchVideoStage,
+  postVideo,
+} from './videos.controller.js';
 
 export function createVideosRouter() {
   const router = expressPromiseRouter();
@@ -13,6 +18,12 @@ export function createVideosRouter() {
     requireAuthMiddleware,
     requireWorkspaceMember,
     patchVideoStage,
+  );
+  router.get(
+    '/:id/audit',
+    requireAuthMiddleware,
+    requireWorkspaceMember,
+    getVideoAudit,
   );
 
   return router;

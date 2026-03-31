@@ -17,3 +17,24 @@ export async function appendAuditEvent({
     },
   });
 }
+
+export async function listAuditEventsForVideo(
+  workspaceId,
+  videoProjectId,
+  limit = 100,
+) {
+  const safeLimit = Math.max(1, Math.min(Number(limit) || 50, 200));
+  return prisma.auditEvent.findMany({
+    where: {
+      workspaceId,
+      videoProjectId,
+    },
+    include: {
+      actor: {
+        select: { id: true, email: true, name: true },
+      },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: safeLimit,
+  });
+}

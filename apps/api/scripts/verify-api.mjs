@@ -200,6 +200,7 @@ async function main() {
     );
   }
 
+  let ideaId = '';
   {
     const { res, json } = await req('GET', '/ideas', { cookie, headers: wsHeaders });
     ok('GET /ideas', res.status === 200 && Array.isArray(json?.ideas), `(${res.status})`);
@@ -211,7 +212,68 @@ async function main() {
       headers: wsHeaders,
       body: { title: 'Verify idea', tags: ['smoke'] },
     });
-    ok('POST /ideas', res.status === 201 && json?.idea?.id, `(${res.status})`);
+    ideaId = json?.idea?.id || '';
+    ok('POST /ideas', res.status === 201 && !!ideaId, `(${res.status})`);
+  }
+
+  {
+    const { res, json } = await req('GET', `/ideas/${ideaId}`, {
+      cookie,
+      headers: wsHeaders,
+    });
+    ok('GET /ideas/:id', res.status === 200 && json?.idea?.id === ideaId, `(${res.status})`);
+  }
+
+  {
+    const { res, json } = await req('PATCH', `/ideas/${ideaId}`, {
+      cookie,
+      headers: wsHeaders,
+      body: { expectedPerformance: 'High', tags: ['updated'] },
+    });
+    ok(
+      'PATCH /ideas/:id',
+      res.status === 200 && json?.idea?.expectedPerformance === 'High',
+      `(${res.status})`,
+    );
+  }
+
+  {
+    const { res, json } = await req('POST', `/ideas/${ideaId}/convert`, {
+      cookie,
+      headers: wsHeaders,
+    });
+    ok(
+      'POST /ideas/:id/convert',
+      res.status === 201 && !!json?.videoProject?.id,
+      `(${res.status})`,
+    );
+  }
+
+  {
+    const { res } = await req('DELETE', `/ideas/${ideaId}`, {
+      cookie,
+      headers: wsHeaders,
+    });
+    ok('DELETE /ideas/:id (converted idea)', res.status === 400, `(${res.status})`);
+  }
+
+  let deletableIdeaId = '';
+  {
+    const { res, json } = await req('POST', '/ideas', {
+      cookie,
+      headers: wsHeaders,
+      body: { title: 'Delete-me idea' },
+    });
+    deletableIdeaId = json?.idea?.id || '';
+    ok('POST /ideas (for delete)', res.status === 201 && !!deletableIdeaId, `(${res.status})`);
+  }
+
+  {
+    const { res } = await req('DELETE', `/ideas/${deletableIdeaId}`, {
+      cookie,
+      headers: wsHeaders,
+    });
+    ok('DELETE /ideas/:id', res.status === 204, `(${res.status})`);
   }
 
   let suCookie = '';
@@ -253,10 +315,120 @@ async function main() {
     );
   }
 
-  // --- Stubs (501) ---
-  for (const mod of ['tasks', 'comments', 'analytics']) {
-    const { res, json } = await req('GET', `/${mod}`, { cookie });
-    ok(`GET /${mod} (stub 501)`, res.status === 501 && json?.error === 'NotImplemented', `(${res.status})`);
+  let taskId = '';
+  {
+    const { res, json } = await req('POST', '/tasks', {
+      cookie,
+      headers: wsHeaders,
+      body: { title: 'Verify task', videoProjectId: videoId, priority: 'high' },
+    });
+    taskId = json?.task?.id || '';
+    ok('POST /tasks', res.status === 201 && !!taskId, `(${res.status})`);
+  }
+
+  {
+    const { res, json } = await req('GET', '/tasks', {
+      cookie,
+      headers: wsHeaders,
+    });
+    ok(
+      'GET /tasks',
+      res.status === 200 && Array.isArray(json?.tasks),
+      `(${res.status})`,
+    );
+  }
+
+  {
+    const { res } = await req('PATCH', `/tasks/${taskId}`, {
+      cookie,
+      headers: wsHeaders,
+      body: { status: 'IN_PROGRESS' },
+    });
+    ok('PATCH /tasks/:id', res.status === 200, `(${res.status})`);
+  }
+
+  let commentId = '';
+  {
+    const { res, json } = await req('POST', '/comments', {
+      cookie,
+      headers: wsHeaders,
+      body: { taskId, body: 'Verify comment' },
+    });
+    commentId = json?.comment?.id || '';
+    ok('POST /comments', res.status === 201 && !!commentId, `(${res.status})`);
+  }
+
+  {
+    const { res, json } = await req('GET', '/comments', {
+      cookie,
+      headers: wsHeaders,
+    });
+    ok(
+      'GET /comments',
+      res.status === 200 && Array.isArray(json?.comments),
+      `(${res.status})`,
+    );
+  }
+
+  {
+    const { res } = await req('PATCH', `/comments/${commentId}`, {
+      cookie,
+      headers: wsHeaders,
+      body: { body: 'Verify comment updated' },
+    });
+    ok('PATCH /comments/:id', res.status === 200, `(${res.status})`);
+  }
+
+  {
+    const { res, json } = await req('GET', `/videos/${videoId}/audit`, {
+      cookie,
+      headers: wsHeaders,
+    });
+    ok(
+      'GET /videos/:id/audit',
+      res.status === 200 && Array.isArray(json?.events),
+      `(${res.status})`,
+    );
+  }
+
+  {
+    const { res } = await req('DELETE', `/comments/${commentId}`, {
+      cookie,
+      headers: wsHeaders,
+    });
+    ok('DELETE /comments/:id', res.status === 204, `(${res.status})`);
+  }
+
+  {
+    const { res } = await req('DELETE', `/tasks/${taskId}`, {
+      cookie,
+      headers: wsHeaders,
+    });
+    ok('DELETE /tasks/:id', res.status === 204, `(${res.status})`);
+  }
+
+  {
+    const { res, json } = await req('GET', '/analytics/channel-overview', {
+      cookie,
+      headers: wsHeaders,
+    });
+    ok(
+      'GET /analytics/channel-overview',
+      res.status === 200 && !!json?.overview,
+      `(${res.status})`,
+    );
+  }
+
+  {
+    const { res, json } = await req('GET', '/analytics/videos', {
+      cookie,
+      headers: wsHeaders,
+    });
+    ok(
+      'GET /analytics/videos',
+      res.status === 200 && Array.isArray(json?.videos),
+      `(${res.status})`,
+    );
   }
 
   // --- Workspace scope without header ---

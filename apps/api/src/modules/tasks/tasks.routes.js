@@ -2,47 +2,32 @@ import expressPromiseRouter from 'express-promise-router';
 import { requireAuthMiddleware } from '../../auth/session.js';
 import { requireWorkspaceMember } from '../../auth/middlewares/workspaceScope.js';
 import { requireRole } from '../../auth/rbac.js';
-import {
-  getIdea,
-  getIdeas,
-  patchIdea,
-  postIdea,
-  postIdeaConvert,
-  removeIdea,
-} from './ideas.controller.js';
+import { getTasks, patchTask, postTask, removeTask } from './tasks.controller.js';
 
-export function createIdeasRouter() {
+export function createTasksRouter() {
   const router = expressPromiseRouter();
 
-  router.get('/', requireAuthMiddleware, requireWorkspaceMember, getIdeas);
+  router.get('/', requireAuthMiddleware, requireWorkspaceMember, getTasks);
   router.post(
     '/',
     requireAuthMiddleware,
     requireWorkspaceMember,
     requireRole(['ADMIN', 'CREATOR', 'EDITOR']),
-    postIdea,
+    postTask,
   );
-  router.get('/:id', requireAuthMiddleware, requireWorkspaceMember, getIdea);
   router.patch(
     '/:id',
     requireAuthMiddleware,
     requireWorkspaceMember,
     requireRole(['ADMIN', 'CREATOR', 'EDITOR']),
-    patchIdea,
+    patchTask,
   );
   router.delete(
     '/:id',
     requireAuthMiddleware,
     requireWorkspaceMember,
     requireRole(['ADMIN', 'CREATOR', 'EDITOR']),
-    removeIdea,
-  );
-  router.post(
-    '/:id/convert',
-    requireAuthMiddleware,
-    requireWorkspaceMember,
-    requireRole(['ADMIN', 'CREATOR', 'EDITOR']),
-    postIdeaConvert,
+    removeTask,
   );
 
   return router;

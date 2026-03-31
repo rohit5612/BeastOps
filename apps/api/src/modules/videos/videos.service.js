@@ -1,6 +1,7 @@
 import { prisma } from '../../core/db/client.js';
 import { AppError } from '../../core/utils/errors.js';
 import { appendAuditEvent } from '../audit/audit.service.js';
+import { listAuditEventsForVideo } from '../audit/audit.service.js';
 import { ensureDefaultPipelineStages } from '../pipeline/pipeline.service.js';
 
 export async function listVideoProjects(workspaceId) {
@@ -88,4 +89,15 @@ export async function moveVideoProjectToStage(
   });
 
   return updated;
+}
+
+export async function getVideoAuditTimeline(workspaceId, videoProjectId, limit) {
+  const video = await prisma.videoProject.findFirst({
+    where: { id: videoProjectId, workspaceId },
+    select: { id: true },
+  });
+  if (!video) {
+    throw new AppError('Video project not found', 404, 'NotFound');
+  }
+  return listAuditEventsForVideo(workspaceId, videoProjectId, limit);
 }

@@ -1,5 +1,6 @@
 import {
   createVideoProject,
+  getVideoAuditTimeline,
   listVideoProjects,
   moveVideoProjectToStage,
 } from './videos.service.js';
@@ -30,4 +31,11 @@ export async function patchVideoStage(req, res) {
     req.user.sub,
   );
   res.json({ videoProject: updated });
+}
+
+export async function getVideoAudit(req, res) {
+  const { id } = req.params;
+  const { limit } = req.query;
+  const events = await getVideoAuditTimeline(req.workspace.id, id, limit);
+  res.json({ events });
 }
