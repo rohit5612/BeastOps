@@ -30,12 +30,26 @@ export async function requireAuthMiddleware(req, res, next) {
 
   const account = await prisma.user.findUnique({
     where: { id: req.user.sub },
-    select: { isActive: true },
+    select: {
+      isActive: true,
+      emailVerifiedAt: true,
+      onboardingStatus: true,
+      systemAccount: true,
+    },
   });
   if (!account?.isActive) {
     return res.status(403).json({
       error: 'Forbidden',
       message: 'Account is disabled',
+    });
+  }
+  if (
+    account.systemAccount === 'NONE' &&
+    (!account.emailVerifiedAt || account.onboardingStatus !== 'APPROVED')
+  ) {
+    return res.status(403).json({
+      error: 'Forbidden',
+      message: 'Account is not fully onboarded',
     });
   }
 

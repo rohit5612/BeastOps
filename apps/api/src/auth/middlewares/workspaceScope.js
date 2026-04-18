@@ -1,6 +1,13 @@
 import { prisma } from '../../core/db/client.js';
 import { isElevatedSystemAccount } from '../../core/systemUsers/guards.js';
 
+function workspaceRoleToLevel(role) {
+  if (role === 'ADMIN') return 'LEVEL1';
+  if (role === 'CREATOR') return 'LEVEL3';
+  if (role === 'EDITOR') return 'LEVEL4';
+  return 'LEVEL5';
+}
+
 /**
  * Requires `X-Workspace-Id` and membership (or system superuser override).
  * Sets `req.workspace`, `req.memberRole`, and `req.superuserWorkspaceAccess` when applicable.
@@ -51,6 +58,13 @@ export async function requireWorkspaceMember(req, res, next) {
 
     req.workspace = workspace;
     req.memberRole = 'ADMIN';
+    req.tenantMember = {
+      id: `system-${userId}`,
+      tenantId: workspace.tenantId || null,
+      userId,
+      accessLevel: 'LEVEL0',
+      onboardingStatus: 'APPROVED',
+    };
     req.superuserWorkspaceAccess = true;
     return next();
   }
@@ -73,6 +87,35 @@ export async function requireWorkspaceMember(req, res, next) {
 
   req.workspace = member.workspace;
   req.memberRole = member.role;
+  if (member.workspace.tenantId) {
+    const tenantMember = await prisma.tenantMember.findUnique({
+      where: {
+        tenantId_userId: {
+          tenantId: member.workspace.tenantId,
+          userId,
+        },
+      },
+    });
+    if (tenantMember) {
+      req.tenantMember = tenantMember;
+    } else {
+      req.tenantMember = {
+        id: `legacy-${member.id}`,
+        tenantId: member.workspace.tenantId,
+        userId,
+        accessLevel: workspaceRoleToLevel(member.role),
+        onboardingStatus: 'APPROVED',
+      };
+    }
+  } else {
+    req.tenantMember = {
+      id: `legacy-${member.id}`,
+      tenantId: null,
+      userId,
+      accessLevel: workspaceRoleToLevel(member.role),
+      onboardingStatus: 'APPROVED',
+    };
+  }
   req.superuserWorkspaceAccess = false;
   next();
 }

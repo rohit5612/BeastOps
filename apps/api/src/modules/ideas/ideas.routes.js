@@ -1,7 +1,7 @@
 import expressPromiseRouter from 'express-promise-router';
 import { requireAuthMiddleware } from '../../auth/session.js';
 import { requireWorkspaceMember } from '../../auth/middlewares/workspaceScope.js';
-import { requireRole } from '../../auth/rbac.js';
+import { requirePermission } from '../../auth/policy.js';
 import {
   getIdea,
   getIdeas,
@@ -14,34 +14,46 @@ import {
 export function createIdeasRouter() {
   const router = expressPromiseRouter();
 
-  router.get('/', requireAuthMiddleware, requireWorkspaceMember, getIdeas);
+  router.get(
+    '/',
+    requireAuthMiddleware,
+    requireWorkspaceMember,
+    requirePermission('ideas', 'read'),
+    getIdeas,
+  );
   router.post(
     '/',
     requireAuthMiddleware,
     requireWorkspaceMember,
-    requireRole(['ADMIN', 'CREATOR', 'EDITOR']),
+    requirePermission('ideas', 'create'),
     postIdea,
   );
-  router.get('/:id', requireAuthMiddleware, requireWorkspaceMember, getIdea);
+  router.get(
+    '/:id',
+    requireAuthMiddleware,
+    requireWorkspaceMember,
+    requirePermission('ideas', 'read'),
+    getIdea,
+  );
   router.patch(
     '/:id',
     requireAuthMiddleware,
     requireWorkspaceMember,
-    requireRole(['ADMIN', 'CREATOR', 'EDITOR']),
+    requirePermission('ideas', 'update'),
     patchIdea,
   );
   router.delete(
     '/:id',
     requireAuthMiddleware,
     requireWorkspaceMember,
-    requireRole(['ADMIN', 'CREATOR', 'EDITOR']),
+    requirePermission('ideas', 'delete'),
     removeIdea,
   );
   router.post(
     '/:id/convert',
     requireAuthMiddleware,
     requireWorkspaceMember,
-    requireRole(['ADMIN', 'CREATOR', 'EDITOR']),
+    requirePermission('ideas', 'update'),
     postIdeaConvert,
   );
 

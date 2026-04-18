@@ -1,32 +1,38 @@
 import expressPromiseRouter from 'express-promise-router';
 import { requireAuthMiddleware } from '../../auth/session.js';
 import { requireWorkspaceMember } from '../../auth/middlewares/workspaceScope.js';
-import { requireRole } from '../../auth/rbac.js';
+import { requirePermission } from '../../auth/policy.js';
 import { getTasks, patchTask, postTask, removeTask } from './tasks.controller.js';
 
 export function createTasksRouter() {
   const router = expressPromiseRouter();
 
-  router.get('/', requireAuthMiddleware, requireWorkspaceMember, getTasks);
+  router.get(
+    '/',
+    requireAuthMiddleware,
+    requireWorkspaceMember,
+    requirePermission('tasks', 'read'),
+    getTasks,
+  );
   router.post(
     '/',
     requireAuthMiddleware,
     requireWorkspaceMember,
-    requireRole(['ADMIN', 'CREATOR', 'EDITOR']),
+    requirePermission('tasks', 'create'),
     postTask,
   );
   router.patch(
     '/:id',
     requireAuthMiddleware,
     requireWorkspaceMember,
-    requireRole(['ADMIN', 'CREATOR', 'EDITOR']),
+    requirePermission('tasks', 'update'),
     patchTask,
   );
   router.delete(
     '/:id',
     requireAuthMiddleware,
     requireWorkspaceMember,
-    requireRole(['ADMIN', 'CREATOR', 'EDITOR']),
+    requirePermission('tasks', 'delete'),
     removeTask,
   );
 

@@ -1,5 +1,10 @@
 import { useEffect, useState } from 'react';
-import { apiRequest, getWorkspaceId, setWorkspaceId, workspaceHeaders } from '../../shared/lib/api.js';
+import { getWorkspaceId } from '../../shared/lib/api.js';
+import {
+  createTask as createTaskRequest,
+  deleteTask,
+  listTasks,
+} from '../../shared/lib/services/tasksApi.js';
 
 export function TasksPage() {
   const [videoProjectId, setVideoProjectId] = useState('');
@@ -14,9 +19,8 @@ export function TasksPage() {
       return;
     }
     try {
-      const query = videoProjectId ? `?videoProjectId=${encodeURIComponent(videoProjectId)}` : '';
-      const data = await apiRequest(`/tasks${query}`, {
-        headers: workspaceHeaders(workspaceId),
+      const data = await listTasks(workspaceId, {
+        videoProjectId: videoProjectId || undefined,
       });
       setTasks(data.tasks || []);
       setMessage(`Loaded ${data.tasks?.length || 0} tasks`);
@@ -32,14 +36,10 @@ export function TasksPage() {
       return;
     }
     try {
-      await apiRequest('/tasks', {
-        method: 'POST',
-        headers: workspaceHeaders(workspaceId),
-        body: {
-          title: title.trim(),
-          videoProjectId: videoProjectId || undefined,
-          priority: 'MEDIUM',
-        },
+      await createTaskRequest(workspaceId, {
+        title: title.trim(),
+        videoProjectId: videoProjectId || undefined,
+        priority: 'MEDIUM',
       });
       setTitle('');
       await loadTasks();
@@ -51,10 +51,7 @@ export function TasksPage() {
   async function removeTask(id) {
     const workspaceId = getWorkspaceId();
     try {
-      await apiRequest(`/tasks/${id}`, {
-        method: 'DELETE',
-        headers: workspaceHeaders(workspaceId),
-      });
+      await deleteTask(workspaceId, id);
       await loadTasks();
     } catch (err) {
       setMessage(err.message);
@@ -68,51 +65,47 @@ export function TasksPage() {
   }, []);
 
   return (
-    <div className="space-y-4">
-      <h2 className="text-xl font-semibold">Tasks</h2>
-      <p className="text-sm text-muted-foreground">Backed by `/api/tasks` with workspace scoping.</p>
-
-      <div className="grid gap-2 md:grid-cols-2">
-        <input
-          className="bg-background border border-input rounded-md px-3 py-2"
-          value={videoProjectId}
-          onChange={(e) => setVideoProjectId(e.target.value)}
-          placeholder="Optional Video Project ID"
-        />
-        <button
-          className="bg-muted text-foreground rounded-md px-3 py-2 hover:bg-accent hover:text-accent-foreground"
-          onClick={() => {
-            const workspaceId = getWorkspaceId();
-            setWorkspaceId(workspaceId);
-            loadTasks();
-          }}
-        >
-          Save workspace + Refresh
-        </button>
+    <section className="app-page">
+      <div className="app-page-header">
+        <h1 className="app-page-title">Tasks</h1>
+        <p className="app-page-subtitle">Backed by `/api/tasks` with workspace scoping.</p>
       </div>
 
-      <div className="flex gap-2">
-        <input
-          className="flex-1 bg-background border border-input rounded-md px-3 py-2"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="New task title"
-        />
-        <button
-          className="bg-primary text-primary-foreground rounded-md px-3 py-2 hover:opacity-90"
-          onClick={createTask}
-        >
-          Create Task
-        </button>
+      <div className="app-surface p-5 space-y-3">
+        <div className="grid gap-2 md:grid-cols-[1fr_auto]">
+          <input
+            className="app-input"
+            value={videoProjectId}
+            onChange={(e) => setVideoProjectId(e.target.value)}
+            placeholder="Optional Video Project ID"
+          />
+          <button
+            className="app-btn-muted"
+            onClick={loadTasks}
+          >
+            Refresh
+          </button>
+        </div>
+        <div className="flex gap-2">
+          <input
+            className="app-input flex-1"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="New task title"
+          />
+          <button className="app-btn-primary" onClick={createTask}>
+            Create Task
+          </button>
+        </div>
       </div>
 
-      {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
+      {message ? <div className="text-sm text-muted-foreground">{message}</div> : null}
 
-      <div className="space-y-2">
+      <div className="app-surface divide-y divide-border">
         {tasks.map((task) => (
           <div
             key={task.id}
-            className="rounded-lg border border-border bg-card p-3 flex items-center justify-between"
+            className="p-4 flex items-center justify-between gap-3"
           >
             <div>
               <p className="font-medium">{task.title}</p>
@@ -121,7 +114,7 @@ export function TasksPage() {
               </p>
             </div>
             <button
-              className="text-destructive text-sm"
+              className="text-destructive text-sm hover:underline"
               onClick={() => removeTask(task.id)}
             >
               Delete
@@ -129,6 +122,6 @@ export function TasksPage() {
           </div>
         ))}
       </div>
-    </div>
+    </section>
   );
 }

@@ -33,31 +33,89 @@ enum SystemAccountType {
   BACKUP_SUPERUSER
 }
 
+enum TenantStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+}
+
+enum OnboardingStatus {
+  PENDING_EMAIL_VERIFICATION
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+}
+
+enum AccessLevel {
+  LEVEL0
+  LEVEL1
+  LEVEL2
+  LEVEL3
+  LEVEL4
+  LEVEL5
+}
+
+enum AuthTokenType {
+  EMAIL_VERIFICATION
+  INVITE
+  BACKUP_SUPERADMIN_ACTIVATION
+  PASSWORD_RESET
+}
+
 model User {
   id        String   @id @default(cuid())
   email     String   @unique
+  passwordHash String?
   name      String?
   imageUrl  String?
   /// Immutable elevated accounts; cannot be deleted, deactivated, or edited via API.
   systemAccount SystemAccountType @default(NONE)
   /// When false, user cannot authenticate (system accounts are always treated as active).
   isActive      Boolean           @default(true)
+  lastLoginAt   DateTime?
+  emailVerifiedAt DateTime?
+  onboardingStatus OnboardingStatus @default(PENDING_EMAIL_VERIFICATION)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   memberships    WorkspaceMember[]
+  tenantMemberships TenantMember[]
+  createdTenants Tenant[] @relation("TenantCreator")
+  approvedTenantMembers TenantMember[] @relation("TenantMemberApprover")
+  issuedAuthTokens AuthToken[] @relation("AuthTokenIssuer")
+  authTokens     AuthToken[]
   oauthAccounts  OAuthAccount[]
   tasksAssigned  Task[]            @relation("TaskAssignee")
   comments       Comment[]
   auditEvents    AuditEvent[]
 }
 
+model Tenant {
+  id          String       @id @default(cuid())
+  tenantCode  String       @unique
+  companyName String
+  status      TenantStatus @default(PENDING)
+  createdByUserId String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  createdBy   User?        @relation("TenantCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  workspaces  Workspace[]
+  members     TenantMember[]
+  departments Department[]
+  roles       Role[]
+  permissions Permission[]
+  authTokens  AuthToken[]
+}
+
 model Workspace {
   id        String   @id @default(cuid())
+  tenantId  String?
   name      String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  tenant          Tenant?            @relation(fields: [tenantId], references: [id], onDelete: SetNull)
   members         WorkspaceMember[]
   pipelineStages  PipelineStage[]
   videoProjects   VideoProject[]
@@ -67,6 +125,9 @@ model Workspace {
   auditEvents     AuditEvent[]
   channels        Channel[]
   youtubeVideos   Video[]
+  tenantMembers   TenantMember[]
+
+  @@index([tenantId])
 }
 
 model WorkspaceMember {
@@ -81,6 +142,133 @@ model WorkspaceMember {
 
   @@unique([workspaceId, userId])
   @@index([userId])
+}
+
+model Department {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  moduleAccess Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  members TenantMember[]
+  roles   Role[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+model TenantMember {
+  id                   String           @id @default(cuid())
+  tenantId             String
+  userId               String
+  workspaceId          String?
+  departmentId         String?
+  onboardingStatus     OnboardingStatus @default(PENDING_EMAIL_VERIFICATION)
+  accessLevel          AccessLevel      @default(LEVEL5)
+  isPrimarySuperadmin  Boolean          @default(false)
+  isBackupSuperadmin   Boolean          @default(false)
+  approvedByUserId     String?
+  approvedAt           DateTime?
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+
+  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace?  @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  department  Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  approvedBy  User?       @relation("TenantMemberApprover", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+  roles       UserRoleAssignment[]
+
+  @@unique([tenantId, userId])
+  @@index([workspaceId])
+  @@index([departmentId])
+}
+
+model Role {
+  id            String   @id @default(cuid())
+  tenantId      String
+  departmentId  String?
+  name          String
+  roleKey       String?
+  description   String?
+  templateLevel Int?
+  isSystem      Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant          Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  department      Department?         @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  rolePermissions RolePermission[]
+  assignments     UserRoleAssignment[]
+
+  @@index([tenantId])
+  @@index([departmentId])
+  @@unique([tenantId, name])
+}
+
+model Permission {
+  id          String   @id @default(cuid())
+  tenantId    String?
+  resource    String
+  action      String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant          Tenant?          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  rolePermissions RolePermission[]
+
+  @@unique([tenantId, resource, action])
+}
+
+model RolePermission {
+  id           String   @id @default(cuid())
+  roleId       String
+  permissionId String
+  effect       String   @default("allow")
+  conditions   Json?
+  createdAt    DateTime @default(now())
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+}
+
+model UserRoleAssignment {
+  id             String   @id @default(cuid())
+  tenantMemberId String
+  roleId         String
+  createdAt      DateTime @default(now())
+
+  tenantMember TenantMember @relation(fields: [tenantMemberId], references: [id], onDelete: Cascade)
+  role         Role         @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantMemberId, roleId])
+}
+
+model AuthToken {
+  id             String       @id @default(cuid())
+  tokenHash      String       @unique
+  type           AuthTokenType
+  userId         String?
+  tenantId       String?
+  issuedByUserId String?
+  email          String?
+  payload        Json?
+  expiresAt      DateTime
+  consumedAt     DateTime?
+  createdAt      DateTime     @default(now())
+
+  user       User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant     Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  issuedBy   User?   @relation("AuthTokenIssuer", fields: [issuedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([email, type])
+  @@index([tenantId, type])
 }
 
 model PipelineStage {

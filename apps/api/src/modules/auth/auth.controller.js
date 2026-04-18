@@ -1,18 +1,17 @@
-import {
-  buildGoogleAuthUrl,
-  createOauthState,
-  exchangeGoogleCodeForTokens,
-  fetchGoogleProfile,
-  validateAndConsumeOauthState,
-} from '../../auth/google.js';
 import { getCookieName, signSessionToken } from '../../auth/jwt.js';
 import { loadConfig } from '../../core/config/index.js';
 import { jwtExpiresInToMs } from '../../core/config/jwtDuration.js';
 import {
+  activateBackupSuperadmin,
   getMePayload,
+  issueInvite,
+  loginWithPassword,
+  registerFromInvite,
+  registerTenant,
+  resendVerification,
   updateMyProfile,
   upsertDevUser,
-  upsertGoogleUserAndAccount,
+  verifyEmailAddress,
 } from './auth.service.js';
 
 export async function postDevLogin(req, res) {
@@ -23,6 +22,9 @@ export async function postDevLogin(req, res) {
 
   const user = await upsertDevUser(req.body);
   const tokenPayload = { sub: user.id, email: user.email };
+  if (req.body?.tenantId) {
+    tokenPayload.tenantId = String(req.body.tenantId);
+  }
   if (user.systemAccount !== 'NONE') {
     tokenPayload.systemAccount = user.systemAccount;
   }
@@ -48,6 +50,99 @@ export async function postDevLogin(req, res) {
   });
 }
 
+function issueSessionCookie(res, config, token) {
+  const maxAge = jwtExpiresInToMs(config.auth.jwtExpiresIn);
+  res.cookie(getCookieName(), token, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: config.env === 'production',
+    maxAge,
+    path: '/',
+  });
+}
+
+export async function postRegisterTenant(req, res) {
+  const payload = await registerTenant(req.body);
+  res.status(201).json(payload);
+}
+
+export async function postVerifyEmail(req, res) {
+  const payload = await verifyEmailAddress(req.body?.token);
+  res.status(200).json({
+    verified: true,
+    ...payload,
+  });
+}
+
+export async function postResendVerification(req, res) {
+  const payload = await resendVerification(req.body?.email);
+  res.status(200).json(payload);
+}
+
+export async function postRegisterInvite(req, res) {
+  const payload = await registerFromInvite(req.body);
+  res.status(201).json(payload);
+}
+
+export async function postActivateBackup(req, res) {
+  const payload = await activateBackupSuperadmin(req.body);
+  res.status(200).json(payload);
+}
+
+export async function postInvite(req, res) {
+  const workspaceId = req.workspace?.id;
+  if (!workspaceId) {
+    return res.status(400).json({
+      error: 'BadRequest',
+      message: 'X-Workspace-Id header is required',
+    });
+  }
+  const tenantId = req.workspace?.tenantId;
+  if (!tenantId) {
+    return res.status(400).json({
+      error: 'BadRequest',
+      message: 'Workspace is not tenant bound',
+    });
+  }
+  const payload = await issueInvite({
+    ...req.body,
+    tenantId,
+    workspaceId,
+    inviterUserId: req.user.sub,
+  });
+  res.status(201).json(payload);
+}
+
+export async function postRegister(req, res) {
+  return postRegisterTenant(req, res);
+}
+
+export async function postLogin(req, res) {
+  const config = loadConfig();
+  const { user, tenantId } = await loginWithPassword(req.body);
+  const tokenPayload = {
+    sub: user.id,
+    email: user.email,
+    tenantId,
+  };
+  if (user.systemAccount !== 'NONE') {
+    tokenPayload.systemAccount = user.systemAccount;
+  }
+  const token = signSessionToken(tokenPayload);
+  issueSessionCookie(res, config, token);
+
+  res.status(200).json({
+    user: {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      systemAccount: user.systemAccount,
+      elevatedAccess: user.systemAccount !== 'NONE',
+    },
+    tenantId,
+  });
+}
+
 export async function postLogout(req, res) {
   const { env } = loadConfig();
   res.clearCookie(getCookieName(), {
@@ -64,6 +159,14 @@ export async function getMe(req, res) {
   res.json(payload);
 }
 
+export async function getOnboardingStatus(req, res) {
+  const payload = await getMePayload(req.user.sub);
+  res.json({
+    user: payload.user,
+    tenants: payload.tenants,
+  });
+}
+
 export async function patchMe(req, res) {
   const user = await updateMyProfile(req.user.sub, req.body);
   res.json({
@@ -72,73 +175,4 @@ export async function patchMe(req, res) {
       elevatedAccess: user.systemAccount !== 'NONE',
     },
   });
-}
-
-export async function getGoogleAuthStart(req, res) {
-  const config = loadConfig();
-  const state = createOauthState();
-  const { authUrl } = buildGoogleAuthUrl(config, state);
-
-  res.cookie('beastops_oauth_state', state, {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: config.env === 'production',
-    maxAge: 10 * 60 * 1000,
-    path: '/api/auth',
-  });
-
-  res.redirect(authUrl);
-}
-
-export async function getGoogleAuthCallback(req, res) {
-  const config = loadConfig();
-  const { code, state } = req.query;
-  const cookieState = req.cookies?.beastops_oauth_state;
-  const stateFromQuery = state ? String(state) : '';
-  const validFromCookie =
-    !!cookieState && stateFromQuery && String(cookieState) === stateFromQuery;
-  const validFromStore =
-    !!stateFromQuery && validateAndConsumeOauthState(stateFromQuery);
-  if (!code || !stateFromQuery || (!validFromCookie && !validFromStore)) {
-    return res.status(400).json({
-      error: 'OAuthStateInvalid',
-      message: 'Invalid OAuth state',
-    });
-  }
-
-  const tokens = await exchangeGoogleCodeForTokens(config, String(code));
-  const profile = await fetchGoogleProfile(tokens.access_token);
-
-  const user = await upsertGoogleUserAndAccount({
-    providerAccountId: profile.id,
-    email: profile.email,
-    name: profile.name,
-    imageUrl: profile.picture,
-    accessToken: tokens.access_token,
-    refreshToken: tokens.refresh_token,
-    expiresInSec: tokens.expires_in,
-  });
-
-  const tokenPayload = { sub: user.id, email: user.email };
-  if (user.systemAccount !== 'NONE') {
-    tokenPayload.systemAccount = user.systemAccount;
-  }
-  const token = signSessionToken(tokenPayload);
-  const maxAge = jwtExpiresInToMs(config.auth.jwtExpiresIn);
-
-  res.clearCookie('beastops_oauth_state', {
-    path: '/api/auth',
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: config.env === 'production',
-  });
-  res.cookie(getCookieName(), token, {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: config.env === 'production',
-    maxAge,
-    path: '/',
-  });
-
-  res.redirect(config.frontend.url || '/');
 }

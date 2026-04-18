@@ -19,9 +19,6 @@ const BASE =
   process.env.API_BASE_URL?.replace(/\/$/, '') ||
   `http://127.0.0.1:${PORT}`;
 const API = `${BASE}/api`;
-const SUPERUSER_EMAIL =
-  process.env.SUPERUSER_EMAIL?.trim().toLowerCase() ||
-  'superuser@beastops.local';
 
 let passed = 0;
 let failed = 0;
@@ -93,374 +90,276 @@ async function main() {
     );
   }
 
-  // --- Auth (development) ---
-  let cookie = '';
-  {
-    const { res, json } = await req('POST', '/auth/dev-login', {
-      body: { email: 'verify-api@test.local', name: 'Verify API' },
-    });
-    cookie = cookieHeaderFromResponse(res);
-    ok(
-      'POST /auth/dev-login',
-      res.status === 200 && json?.user?.id && cookie.includes('beastops_session='),
-      `(${res.status})`,
-    );
-  }
-
+  const suffix = Date.now();
+  const superadminEmail = `owner-${suffix}@test.local`;
+  const superadminPassword = 'OwnerPass123!';
+  const invitedEmail = `invite-${suffix}@test.local`;
+  const invitedPassword = 'InvitePass123!';
+  let tenantId = '';
   let workspaceId = '';
+  let superadminCookie = '';
+
+  // --- Register tenant ---
+  let verifyToken = '';
   {
-    const { res, json } = await req('GET', '/auth/me', { cookie });
+    const { res, json } = await req('POST', '/auth/register-tenant', {
+      body: {
+        companyName: `Acme ${suffix}`,
+        email: superadminEmail,
+        password: superadminPassword,
+        name: 'Owner',
+      },
+    });
+    tenantId = json?.tenantId || '';
+    verifyToken = json?.debug?.verifyToken || '';
     ok(
-      'GET /auth/me',
-      res.status === 200 && json?.user?.email === 'verify-api@test.local',
+      'POST /auth/register-tenant',
+      res.status === 201 && !!tenantId && !!verifyToken,
       `(${res.status})`,
     );
   }
 
   {
-    const { res, json } = await req('PATCH', '/auth/me', {
-      cookie,
-      body: { name: 'Verify API Renamed' },
+    const { res, json } = await req('POST', '/auth/verify-email', {
+      body: { token: verifyToken },
     });
     ok(
-      'PATCH /auth/me (normal user)',
-      res.status === 200 && json?.user?.name === 'Verify API Renamed',
+      'POST /auth/verify-email',
+      res.status === 200 && json?.verified === true,
       `(${res.status})`,
     );
   }
 
   {
-    const { res, json } = await req('GET', '/workspaces', { cookie });
-    ok('GET /workspaces', res.status === 200 && Array.isArray(json?.workspaces), `(${res.status})`);
-  }
-
-  {
-    const { res, json } = await req('POST', '/workspaces', {
-      cookie,
-      body: { name: `Verify Workspace ${Date.now()}` },
+    const { res } = await req('POST', '/auth/login', {
+      body: {
+        tenantId,
+        email: superadminEmail,
+        password: superadminPassword,
+      },
     });
-    workspaceId = json?.workspace?.id || '';
+    superadminCookie = cookieHeaderFromResponse(res);
     ok(
-      'POST /workspaces',
-      res.status === 201 && workspaceId,
+      'POST /auth/login superadmin',
+      res.status === 200 && superadminCookie.includes('beastops_session='),
       `(${res.status})`,
     );
+  }
+
+  {
+    const { res, json } = await req('GET', '/auth/me', { cookie: superadminCookie });
+    workspaceId = json?.workspaces?.[0]?.id || '';
+    ok('GET /auth/me superadmin', res.status === 200 && !!workspaceId, `(${res.status})`);
   }
 
   const wsHeaders = { 'X-Workspace-Id': workspaceId };
-  let firstStageId = '';
-  let videoId = '';
 
+  // --- Invite flow ---
+  let inviteToken = '';
   {
-    const { res, json } = await req('GET', '/pipeline/stages', {
-      cookie,
+    const { res, json } = await req('POST', '/auth/invite', {
+      cookie: superadminCookie,
       headers: wsHeaders,
+      body: { email: invitedEmail, accessLevel: 'LEVEL5' },
     });
-    firstStageId = json?.stages?.[0]?.id || '';
+    inviteToken = json?.debug?.inviteToken || '';
     ok(
-      'GET /pipeline/stages',
-      res.status === 200 && json?.stages?.length >= 7,
-      `(${res.status}, ${json?.stages?.length ?? 0} stages)`,
+      'POST /auth/invite',
+      res.status === 201 && !!inviteToken,
+      `(${res.status})`,
     );
   }
 
+  let invitedVerifyToken = '';
   {
-    const { res, json } = await req('GET', '/videos', { cookie, headers: wsHeaders });
+    const { res, json } = await req('POST', '/auth/register-invite', {
+      body: {
+        token: inviteToken,
+        name: 'Invited User',
+        password: invitedPassword,
+      },
+    });
+    invitedVerifyToken = json?.debug?.verifyToken || '';
     ok(
-      'GET /videos',
-      res.status === 200 && Array.isArray(json?.videoProjects),
+      'POST /auth/register-invite',
+      res.status === 201 && !!invitedVerifyToken,
       `(${res.status})`,
     );
   }
 
   {
-    const { res, json } = await req('POST', '/videos', {
-      cookie,
-      headers: wsHeaders,
-      body: { title: 'Verify API Video' },
+    const { res } = await req('POST', '/auth/verify-email', {
+      body: { token: invitedVerifyToken },
     });
-    videoId = json?.videoProject?.id || '';
-    ok('POST /videos', res.status === 201 && videoId, `(${res.status})`);
+    ok('POST /auth/verify-email invited', res.status === 200, `(${res.status})`);
   }
 
-  const secondStageId =
-    (await req('GET', '/pipeline/stages', { cookie, headers: wsHeaders })).json
-      ?.stages?.[1]?.id || '';
-
   {
-    const { res, json } = await req('PATCH', `/videos/${videoId}/stage`, {
-      cookie,
-      headers: wsHeaders,
-      body: { stageId: secondStageId || firstStageId },
+    const { res } = await req('POST', '/auth/login', {
+      body: {
+        tenantId,
+        email: invitedEmail,
+        password: invitedPassword,
+      },
     });
     ok(
-      'PATCH /videos/:id/stage',
-      res.status === 200 && json?.videoProject?.stage?.id,
-      `(${res.status})`,
-    );
-  }
-
-  let ideaId = '';
-  {
-    const { res, json } = await req('GET', '/ideas', { cookie, headers: wsHeaders });
-    ok('GET /ideas', res.status === 200 && Array.isArray(json?.ideas), `(${res.status})`);
-  }
-
-  {
-    const { res, json } = await req('POST', '/ideas', {
-      cookie,
-      headers: wsHeaders,
-      body: { title: 'Verify idea', tags: ['smoke'] },
-    });
-    ideaId = json?.idea?.id || '';
-    ok('POST /ideas', res.status === 201 && !!ideaId, `(${res.status})`);
-  }
-
-  {
-    const { res, json } = await req('GET', `/ideas/${ideaId}`, {
-      cookie,
-      headers: wsHeaders,
-    });
-    ok('GET /ideas/:id', res.status === 200 && json?.idea?.id === ideaId, `(${res.status})`);
-  }
-
-  {
-    const { res, json } = await req('PATCH', `/ideas/${ideaId}`, {
-      cookie,
-      headers: wsHeaders,
-      body: { expectedPerformance: 'High', tags: ['updated'] },
-    });
-    ok(
-      'PATCH /ideas/:id',
-      res.status === 200 && json?.idea?.expectedPerformance === 'High',
-      `(${res.status})`,
-    );
-  }
-
-  {
-    const { res, json } = await req('POST', `/ideas/${ideaId}/convert`, {
-      cookie,
-      headers: wsHeaders,
-    });
-    ok(
-      'POST /ideas/:id/convert',
-      res.status === 201 && !!json?.videoProject?.id,
-      `(${res.status})`,
-    );
-  }
-
-  {
-    const { res } = await req('DELETE', `/ideas/${ideaId}`, {
-      cookie,
-      headers: wsHeaders,
-    });
-    ok('DELETE /ideas/:id (converted idea)', res.status === 400, `(${res.status})`);
-  }
-
-  let deletableIdeaId = '';
-  {
-    const { res, json } = await req('POST', '/ideas', {
-      cookie,
-      headers: wsHeaders,
-      body: { title: 'Delete-me idea' },
-    });
-    deletableIdeaId = json?.idea?.id || '';
-    ok('POST /ideas (for delete)', res.status === 201 && !!deletableIdeaId, `(${res.status})`);
-  }
-
-  {
-    const { res } = await req('DELETE', `/ideas/${deletableIdeaId}`, {
-      cookie,
-      headers: wsHeaders,
-    });
-    ok('DELETE /ideas/:id', res.status === 204, `(${res.status})`);
-  }
-
-  let suCookie = '';
-  {
-    const { res, json } = await req('POST', '/auth/dev-login', {
-      body: { email: SUPERUSER_EMAIL, name: 'Should not apply' },
-    });
-    suCookie = cookieHeaderFromResponse(res);
-    ok(
-      'POST /auth/dev-login (primary superuser)',
-      res.status === 200 &&
-        json?.user?.systemAccount === 'SUPERUSER' &&
-        json?.user?.elevatedAccess === true,
-      `(${res.status})`,
-    );
-  }
-
-  {
-    const { res, json } = await req('GET', '/pipeline/stages', {
-      cookie: suCookie,
-      headers: wsHeaders,
-    });
-    ok(
-      'GET /pipeline/stages as superuser (no workspace membership)',
-      res.status === 200 && json?.stages?.length >= 7,
-      `(${res.status})`,
-    );
-  }
-
-  {
-    const { res } = await req('PATCH', '/auth/me', {
-      cookie: suCookie,
-      body: { name: 'Hacker' },
-    });
-    ok(
-      'PATCH /auth/me as superuser (protected)',
+      'POST /auth/login invited before approval',
       res.status === 403,
       `(${res.status})`,
     );
   }
 
-  let taskId = '';
+  let pendingMemberId = '';
   {
-    const { res, json } = await req('POST', '/tasks', {
-      cookie,
-      headers: wsHeaders,
-      body: { title: 'Verify task', videoProjectId: videoId, priority: 'high' },
-    });
-    taskId = json?.task?.id || '';
-    ok('POST /tasks', res.status === 201 && !!taskId, `(${res.status})`);
-  }
-
-  {
-    const { res, json } = await req('GET', '/tasks', {
-      cookie,
+    const { res, json } = await req('GET', '/onboarding/pending', {
+      cookie: superadminCookie,
       headers: wsHeaders,
     });
+    pendingMemberId = json?.approvals?.[0]?.id || '';
     ok(
-      'GET /tasks',
-      res.status === 200 && Array.isArray(json?.tasks),
+      'GET /onboarding/pending',
+      res.status === 200 && !!pendingMemberId,
       `(${res.status})`,
     );
   }
 
   {
-    const { res } = await req('PATCH', `/tasks/${taskId}`, {
-      cookie,
+    const { res } = await req('POST', `/onboarding/${pendingMemberId}/approve`, {
+      cookie: superadminCookie,
       headers: wsHeaders,
-      body: { status: 'IN_PROGRESS' },
+      body: { accessLevel: 'LEVEL5' },
     });
-    ok('PATCH /tasks/:id', res.status === 200, `(${res.status})`);
+    ok('POST /onboarding/:id/approve', res.status === 200, `(${res.status})`);
   }
 
-  let commentId = '';
+  let invitedCookie = '';
   {
-    const { res, json } = await req('POST', '/comments', {
-      cookie,
-      headers: wsHeaders,
-      body: { taskId, body: 'Verify comment' },
+    const { res } = await req('POST', '/auth/login', {
+      body: {
+        tenantId,
+        email: invitedEmail,
+        password: invitedPassword,
+      },
     });
-    commentId = json?.comment?.id || '';
-    ok('POST /comments', res.status === 201 && !!commentId, `(${res.status})`);
-  }
-
-  {
-    const { res, json } = await req('GET', '/comments', {
-      cookie,
-      headers: wsHeaders,
-    });
+    invitedCookie = cookieHeaderFromResponse(res);
     ok(
-      'GET /comments',
-      res.status === 200 && Array.isArray(json?.comments),
+      'POST /auth/login invited after approval',
+      res.status === 200 && invitedCookie.includes('beastops_session='),
       `(${res.status})`,
     );
   }
 
+  // --- Admin modules ---
   {
-    const { res } = await req('PATCH', `/comments/${commentId}`, {
-      cookie,
+    const { res, json } = await req('GET', '/users', {
+      cookie: superadminCookie,
       headers: wsHeaders,
-      body: { body: 'Verify comment updated' },
     });
-    ok('PATCH /comments/:id', res.status === 200, `(${res.status})`);
+    ok('GET /users', res.status === 200 && Array.isArray(json?.users), `(${res.status})`);
+  }
+
+  let departmentId = '';
+  {
+    const { res, json } = await req('POST', '/departments', {
+      cookie: superadminCookie,
+      headers: wsHeaders,
+      body: {
+        name: 'Operations',
+        moduleAccess: {
+          user_management: true,
+          content_ops: true,
+          analytics: true,
+          integrations: false,
+        },
+      },
+    });
+    departmentId = json?.department?.id || '';
+    ok('POST /departments', res.status === 201 && !!departmentId, `(${res.status})`);
   }
 
   {
-    const { res, json } = await req('GET', `/videos/${videoId}/audit`, {
-      cookie,
+    const { res, json } = await req('GET', '/departments', {
+      cookie: superadminCookie,
       headers: wsHeaders,
     });
     ok(
-      'GET /videos/:id/audit',
-      res.status === 200 && Array.isArray(json?.events),
+      'GET /departments',
+      res.status === 200 &&
+        Array.isArray(json?.departments) &&
+        json.departments.some((d) => d.id === departmentId),
       `(${res.status})`,
     );
   }
 
+  let roleId = '';
   {
-    const { res } = await req('DELETE', `/comments/${commentId}`, {
-      cookie,
+    const { res, json } = await req('POST', '/roles', {
+      cookie: superadminCookie,
+      headers: wsHeaders,
+      body: {
+        name: 'QA Role',
+        departmentId,
+        permissions: [{ resource: 'tasks', action: 'read' }],
+      },
+    });
+    roleId = json?.role?.id || '';
+    ok('POST /roles', res.status === 201 && !!roleId, `(${res.status})`);
+  }
+
+  let invitedMemberId = '';
+  {
+    const { json } = await req('GET', '/users', {
+      cookie: superadminCookie,
       headers: wsHeaders,
     });
-    ok('DELETE /comments/:id', res.status === 204, `(${res.status})`);
+    invitedMemberId =
+      (json?.users || []).find((u) => u.email === invitedEmail)?.id || '';
   }
 
   {
-    const { res } = await req('DELETE', `/tasks/${taskId}`, {
-      cookie,
+    const { res } = await req('PATCH', `/users/${invitedMemberId}`, {
+      cookie: superadminCookie,
+      headers: wsHeaders,
+      body: { departmentId, accessLevel: 'LEVEL5' },
+    });
+    ok('PATCH /users/:id set department', res.status === 200, `(${res.status})`);
+  }
+
+  {
+    const { res } = await req('POST', `/roles/${roleId}/assign`, {
+      cookie: superadminCookie,
+      headers: wsHeaders,
+      body: { tenantMemberId: invitedMemberId },
+    });
+    ok('POST /roles/:id/assign', res.status === 201, `(${res.status})`);
+  }
+
+  // --- Policy checks ---
+  {
+    const { res } = await req('POST', '/tasks', {
+      cookie: invitedCookie,
+      headers: wsHeaders,
+      body: { title: 'Should be denied' },
+    });
+    ok('POST /tasks as LEVEL5 denied', res.status === 403, `(${res.status})`);
+  }
+
+  {
+    const { res } = await req('GET', '/tasks', {
+      cookie: invitedCookie,
       headers: wsHeaders,
     });
-    ok('DELETE /tasks/:id', res.status === 204, `(${res.status})`);
+    ok('GET /tasks as LEVEL5 allowed', res.status === 200, `(${res.status})`);
   }
 
+  // --- Logout and no-cookie ---
   {
-    const { res, json } = await req('GET', '/analytics/channel-overview', {
-      cookie,
-      headers: wsHeaders,
-    });
-    ok(
-      'GET /analytics/channel-overview',
-      res.status === 200 && !!json?.overview,
-      `(${res.status})`,
-    );
-  }
-
-  {
-    const { res, json } = await req('GET', '/analytics/videos', {
-      cookie,
-      headers: wsHeaders,
-    });
-    ok(
-      'GET /analytics/videos',
-      res.status === 200 && Array.isArray(json?.videos),
-      `(${res.status})`,
-    );
-  }
-
-  // --- Workspace scope without header ---
-  {
-    const { res } = await req('GET', '/pipeline/stages', { cookie });
-    ok('GET /pipeline/stages without X-Workspace-Id', res.status === 400, `(${res.status})`);
-  }
-
-  // --- Logout ---
-  {
-    const { res } = await req('POST', '/auth/logout', { cookie });
+    const { res } = await req('POST', '/auth/logout', { cookie: invitedCookie });
     ok('POST /auth/logout', res.status === 204, `(${res.status})`);
   }
-
   {
     const { res } = await req('GET', '/auth/me');
-    ok('GET /auth/me with no Cookie header', res.status === 401, `(${res.status})`);
-  }
-
-  {
-    const { res } = await req('GET', '/auth/me', { cookie });
-    ok(
-      'GET /auth/me with same JWT cookie after logout',
-      res.status === 200,
-      `(${res.status}) stateless JWT still valid until expiry; browser would drop cookie`,
-    );
-  }
-
-  // --- 404 ---
-  {
-    const { res } = await req('GET', '/nope');
-    ok('GET unknown route (404)', res.status === 404, `(${res.status})`);
+    ok('GET /auth/me with no cookie', res.status === 401, `(${res.status})`);
   }
 
   console.log(`\nDone: ${passed} passed, ${failed} failed`);

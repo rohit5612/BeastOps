@@ -12,24 +12,27 @@ export const GOOGLE_SCOPES = [
 const oauthStateStore = new Map();
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 
-export function createOauthState() {
+export function createOauthState(payload = null) {
   const state = randomBytes(24).toString('hex');
-  oauthStateStore.set(state, Date.now() + OAUTH_STATE_TTL_MS);
+  oauthStateStore.set(state, {
+    expiresAt: Date.now() + OAUTH_STATE_TTL_MS,
+    payload,
+  });
   return state;
 }
 
 export function validateAndConsumeOauthState(state) {
   const now = Date.now();
-  for (const [k, exp] of oauthStateStore.entries()) {
-    if (exp <= now) oauthStateStore.delete(k);
+  for (const [k, value] of oauthStateStore.entries()) {
+    if (value.expiresAt <= now) oauthStateStore.delete(k);
   }
-  const expiresAt = oauthStateStore.get(state);
-  if (!expiresAt || expiresAt <= now) {
+  const stateEntry = oauthStateStore.get(state);
+  if (!stateEntry || stateEntry.expiresAt <= now) {
     oauthStateStore.delete(state);
-    return false;
+    return null;
   }
   oauthStateStore.delete(state);
-  return true;
+  return stateEntry.payload ?? {};
 }
 
 export function buildGoogleAuthUrl(config, state) {

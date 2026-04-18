@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { apiRequest, getWorkspaceId, setWorkspaceId, workspaceHeaders } from '../../shared/lib/api.js';
+import { getWorkspaceId } from '../../shared/lib/api.js';
+import { listVideoAuditEvents } from '../../shared/lib/services/videosApi.js';
 
 export function VideoTimelinePage() {
   const [videoId, setVideoId] = useState('');
@@ -13,9 +14,7 @@ export function VideoTimelinePage() {
       return;
     }
     try {
-      const data = await apiRequest(`/videos/${videoId}/audit`, {
-        headers: workspaceHeaders(workspaceId),
-      });
+      const data = await listVideoAuditEvents(workspaceId, videoId, 50);
       setEvents(data.events || []);
       setMessage(`Loaded ${data.events?.length || 0} events`);
     } catch (err) {
@@ -24,44 +23,44 @@ export function VideoTimelinePage() {
   }
 
   return (
-    <div className="space-y-4">
-      <h2 className="text-xl font-semibold">Video Timeline</h2>
-      <p className="text-sm text-muted-foreground">Backed by `/api/videos/:id/audit`.</p>
-
-      <div className="grid gap-2 md:grid-cols-2">
-        <input
-          className="bg-background border border-input rounded-md px-3 py-2"
-          value={videoId}
-          onChange={(e) => setVideoId(e.target.value)}
-          placeholder="Video Project ID"
-        />
-        <button
-          className="bg-muted text-foreground rounded-md px-3 py-2 hover:bg-accent hover:text-accent-foreground"
-          onClick={() => {
-            const workspaceId = getWorkspaceId();
-            setWorkspaceId(workspaceId);
-            loadTimeline();
-          }}
-        >
-          Save workspace + Load timeline
-        </button>
+    <section className="app-page">
+      <div className="app-page-header">
+        <h1 className="app-page-title">Video Timeline</h1>
+        <p className="app-page-subtitle">Backed by `/api/videos/:id/audit`.</p>
       </div>
 
-      {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
+      <div className="app-surface p-5">
+        <div className="grid gap-2 md:grid-cols-[1fr_auto]">
+          <input
+            className="app-input"
+            value={videoId}
+            onChange={(e) => setVideoId(e.target.value)}
+            placeholder="Video Project ID"
+          />
+          <button
+            className="app-btn-primary"
+            onClick={loadTimeline}
+          >
+            Load Timeline
+          </button>
+        </div>
+      </div>
 
-      <div className="space-y-2">
+      {message ? <div className="text-sm text-muted-foreground">{message}</div> : null}
+
+      <div className="app-surface divide-y divide-border">
         {events.map((evt) => (
-          <div key={evt.id} className="rounded-lg border border-border bg-card p-3">
+          <div key={evt.id} className="p-4">
             <p className="font-medium">{evt.action}</p>
             <p className="text-xs text-muted-foreground">
               {new Date(evt.createdAt).toLocaleString()} | actor: {evt.actor?.name || evt.actor?.email || '-'}
             </p>
-            <pre className="text-xs text-muted-foreground mt-2 whitespace-pre-wrap">
+            <pre className="text-xs text-muted-foreground mt-2 whitespace-pre-wrap app-surface-muted p-3 overflow-x-auto">
               {JSON.stringify(evt.payload, null, 2)}
             </pre>
           </div>
         ))}
       </div>
-    </div>
+    </section>
   );
 }
